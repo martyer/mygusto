@@ -1,12 +1,17 @@
+from elasticsearch import Elasticsearch
 from flask import request, abort
+from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
 
 from app.database import db
 from app.database.models import LikedRecipes, DislikedRecipes
 
-from elasticsearch import Elasticsearch
-
 ns = Namespace('recipe')
+
+es = Elasticsearch(
+    ['https://hackzurich-api.migros.ch/hack/recipe/recipes_de/_search'],
+    http_auth=('hackzurich2020', 'uhSyJ08KexKn4ZFS')
+)
 
 next_input = ns.model('next_input', {
     'gluten_intolerant': fields.Boolean(
@@ -37,24 +42,30 @@ liked_input = ns.model('liked_input', {
 
 def extract_recipe_info(recipe):
     recipe = recipe['_source']
-    image_1 = recipe['images'][0]['ratios'][4]['stack'].replace('{stack}', 'medium')
-    image_16 = recipe['images'][0]['ratios'][1]['stack'].replace('{stack}', 'medium')
+    image_1_1 = recipe['images'][0]['ratios'][4]['stack'].replace('{stack}', 'medium')
+    image_16_9 = recipe['images'][0]['ratios'][1]['stack'].replace('{stack}', 'medium')
 
-    return {'id': recipe['id'],
-            'title': recipe['title'],
-            'teasertext': recipe["teasertext"],
-            'duration': recipe["duration_total_in_minutes"],
-            "steps": recipe['steps'],
-            "nutrients": recipe['nutrients'],
-            "ingredients": recipe["sizes"][0]["ingredient_blocks"][0]["ingredients"],
-            "images": {'1:1': image_1, '16:9': image_16}
-            }
+    return {
+        'id': recipe['id'],
+        'title': recipe['title'],
+        'teasertext': recipe['teasertext'],
+        'duration': recipe['duration_total_in_minutes'],
+        'steps': recipe['steps'],
+        'nutrients': recipe['nutrients'],
+        'ingredients': recipe['sizes'][0]['ingredient_blocks'][0]['ingredients'],
+        'images': {'1:1': image_1_1, '16:9': image_16_9}
+    }
 
 
 @ns.route('/next')
 class NextRecipeResource(Resource):
 
+    @cross_origin()
+    def option(self):
+        return 'Ok', 200
+
     @ns.expect(next_input)
+    @cross_origin()
     def post(self):
         """
         Get next recipe to be swiped
@@ -88,39 +99,35 @@ class NextRecipeResource(Resource):
             :return: Dictionary of the next recipe
             """
 
-            es = Elasticsearch(
-                ['https://hackzurich-api.migros.ch/hack/recipe/recipes_de/_search'],
-                http_auth=('hackzurich2020', 'uhSyJ08KexKn4ZFS'))
-
+            next_recipe = None
             for i in range(5):
                 params = {
-                    "size": 20,
-                    "query": {
-                        "function_score": {
-                            "random_score": {},
+                    'size': 20,
+                    'query': {
+                        'function_score': {
+                            'random_score': {},
                         }
                     }
                 }
                 rand_request = es.search(index='recipes_de', body=params)
                 new_recipes = [recipe for recipe in rand_request['hits']['hits'] if
                                int(recipe['_source']['id']) not in seen_recipe_ids]
-                filtered_recipes = []
+
                 for recipe in new_recipes:
-                    accept = True
                     if gluten_intolerant and 'Glutenfrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
-                        accept = False
+                        continue
                     if lactose_intolerant and 'Laktosefrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
-                        accept = False
-                    if accept:
-                        filtered_recipes.append(recipe)
-                if len(filtered_recipes) is not 0:
+                        continue
+                    next_recipe = recipe
                     break
-            if len(filtered_recipes) == 0:
+
+                if next_recipe:
+                    break
+
+            if not next_recipe:
                 raise Exception('No recipe found')
 
-            next_recipe = extract_recipe_info(filtered_recipes[0])
-
-            return next_recipe
+            return extract_recipe_info(next_recipe)
 
         data = request.json
 
@@ -147,14 +154,16 @@ class NextRecipeResource(Resource):
 
 @ns.route('/liked')
 class LikedRecipeResource(Resource):
+
+    @cross_origin()
+    def option(self):
+        return 'Ok', 200
+
+    @cross_origin()
     def get(self):
         """
         Handle liked recipes
         """
-
-        es = Elasticsearch(
-            ['https://hackzurich-api.migros.ch/hack/recipe/recipes_de/_search'],
-            http_auth=('hackzurich2020', 'uhSyJ08KexKn4ZFS'))
 
         def get_liked_recipe_ids() -> list:
             """
@@ -172,16 +181,17 @@ class LikedRecipeResource(Resource):
             :param liked_recipe_ids: List of recipe ids
             :return: List of dictionaries of recipes
             """
-            params = {"query": {
-                "ids": {
-                    "values": liked_recipe_ids
+            params = {
+                "query": {
+                    "ids": {
+                        "values": liked_recipe_ids
+                    }
                 }
             }
-            }
-            indxs_request = es.search(index='recipes_de', body=params)
-            recipes = indxs_request['hits']['hits']
-            extracted_recipes = [extract_recipe_info(recipe) for recipe in recipes]
-            return extracted_recipes
+            indexes_request = es.search(index='recipes_de', body=params)
+            recipes = indexes_request['hits']['hits']
+
+            return [extract_recipe_info(recipe) for recipe in recipes]
 
         liked_recipes_ids = get_liked_recipe_ids()
         liked_recipes = get_liked_recipes(liked_recipes_ids)
@@ -189,6 +199,7 @@ class LikedRecipeResource(Resource):
         return liked_recipes
 
     @ns.expect(liked_input)
+    @cross_origin()
     def post(self):
         def insert_element_into_db(recipe_id: int, sentiment: str):
             if sentiment == 'liked':
