@@ -4,6 +4,8 @@ from flask_restplus import Namespace, Resource, fields
 from app.database import db
 from app.database.models import LikedRecipes, DislikedRecipes
 
+from elasticsearch import Elasticsearch
+
 ns = Namespace('recipe')
 
 next_input = ns.model('next_input', {
@@ -31,6 +33,18 @@ liked_input = ns.model('liked_input', {
         example='liked'
     )
 })
+
+def extract_recipe_info(recipe):
+    recipe = recipe['_source']
+    return {'id': recipe['id'],
+            'title': recipe['title'],
+            'teasertext': recipe["teasertext"],
+            'duration': recipe["duration_total_in_minutes"],
+            "steps": recipe['steps'],
+            "nutrients": recipe['nutrients'],
+            "ingredients": recipe["sizes"][0]["ingredient_blocks"][0]["ingredients"]
+            }
+
 
 
 @ns.route('/next')
@@ -69,10 +83,40 @@ class NextRecipeResource(Resource):
             :param lactose_intolerant: Whether the user is lactose intolerant
             :return: Dictionary of the next recipe
             """
-            # TODO: insert code
-            return {'seen_recipe_ids': seen_recipe_ids,
-                    'gluten_intolerant': gluten_intolerant,
-                    'lactose_intolerant': lactose_intolerant}
+
+            es = Elasticsearch(
+                ['https://hackzurich-api.migros.ch/hack/recipe/recipes_de/_search'],
+                http_auth=('hackzurich2020', 'uhSyJ08KexKn4ZFS'))
+
+            for i in range(5):
+                params = {
+                    "size": 20,
+                    "query": {
+                        "function_score": {
+                            "random_score": {},
+                        }
+                    }
+                }
+                rand_request = es.search(index='recipes_de', body=params)
+                new_recipes = [recipe for recipe in rand_request['hits']['hits'] if
+                               int(recipe['_source']['id']) not in seen_recipe_ids]
+                filtered_recipes = []
+                for recipe in new_recipes:
+                    accept = True
+                    if gluten_intolerant and 'Glutenfrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
+                        accept = False
+                    if lactose_intolerant and 'Laktosefrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
+                        accept = False
+                    if accept:
+                        filtered_recipes.append(recipe)
+                if len(filtered_recipes) is not 0:
+                    break
+            if len(filtered_recipes) == 0:
+                raise Exception('No recipe found')
+
+            next_recipe = extract_recipe_info(filtered_recipes[0]["_source"])
+
+            return next_recipe
 
         data = request.json
 
@@ -104,6 +148,10 @@ class LikedRecipeResource(Resource):
         Handle liked recipes
         """
 
+        es = Elasticsearch(
+            ['https://hackzurich-api.migros.ch/hack/recipe/recipes_de/_search'],
+            http_auth=('hackzurich2020', 'uhSyJ08KexKn4ZFS'))
+
         def get_liked_recipe_ids() -> list:
             """
             Get the list of recipe ids that the user liked
@@ -120,8 +168,16 @@ class LikedRecipeResource(Resource):
             :param liked_recipe_ids: List of recipe ids
             :return: List of dictionaries of recipes
             """
-            # TODO: insert code
-            return liked_recipe_ids
+            params = {"query": {
+                "ids": {
+                    "values": liked_recipe_ids
+                }
+            }
+            }
+            indxs_request = es.search(index='recipes_de', body=params)
+            recipes = indxs_request['hits']['hits']
+            extracted_recipes = [extract_recipe_info(recipes) for recipes in recipes]
+            return extracted_recipes
 
         liked_recipes_ids = get_liked_recipe_ids()
         liked_recipes = get_liked_recipes(liked_recipes_ids)
