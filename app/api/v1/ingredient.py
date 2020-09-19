@@ -1,13 +1,14 @@
 from flask_restplus import Namespace, Resource
 
-ns = Namespace('test')
+ns = Namespace('ingredient')
 
 
 @ns.route('/')
-class TestResource(Resource):
+class IngredientResource(Resource):
+
     def get(self):
         """
-        This is a test
+        TODO
         """
 
-        return "Hello World"
+        return
