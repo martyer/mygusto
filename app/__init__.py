@@ -1,6 +1,7 @@
 import configparser
 
 from flask import Flask
+from flask_cors import CORS
 from flask_migrate import Migrate
 
 from app.api.api import blueprint as api_blueprint
@@ -17,6 +18,7 @@ def create_app():
               f'@{config["POSTGRES"]["HOST"]}/{config["POSTGRES"]["DB"]}')
     app.config.update(SQLALCHEMY_DATABASE_URI=db_url)
     app.url_map.strict_slashes = False  # Routes don't need to end with a trailing slash
+    CORS(app)
 
     init_extensions(app)
 
