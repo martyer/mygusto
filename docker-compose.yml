@@ -10,9 +10,12 @@ services:
     environment:
       FLASK_ENV: development
       FLASK_APP: app
+      WAIT_HOSTS: 'postgres:5432'
+      WAIT_HOSTS_TIMEOUT: 60
+      WAIT_AFTER_HOSTS: 5
     ports:
       - 5000:5000
-    command: /mygusto/app/run_flask
+    command: /bin/sh -c "/wait && /mygusto/app/run_flask"
     depends_on:
       - postgres
 
@@ -24,5 +27,3 @@ services:
       POSTGRES_DB: mygusto
     ports:
       - 5432:5432
-    volumes:
-      - ./data/db/pgdata:/var/lib/postgresql/data/
