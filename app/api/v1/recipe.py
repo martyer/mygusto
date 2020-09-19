@@ -6,7 +6,7 @@ from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
 
 from app.database import db
-from app.database.models import LikedRecipes, DislikedRecipes, ShoppingList
+from app.database.models import LikedRecipes, DislikedRecipes, ShoppingList, FeatureVectors
 from app.utils.recipe_parser import extract_recipe_info
 
 ns = Namespace('recipe')
@@ -223,13 +223,27 @@ class LikedRecipeResource(Resource):
             :param sentiment: String containing info if the recipe was swiped left or right
             :return: None
             """
+
+            def create_feature_vector(recipe_id: int) -> str:
+                """
+                Create feature vector for KNN classification
+
+                :param recipe_id: Id of a swiped recipe
+                :return: JSON representation of feature vector
+                """
+                return 'test'
+
             if sentiment == 'liked':
                 new_recipe = LikedRecipes(recipe_id=recipe_id)
+
             elif sentiment == 'disliked':
                 new_recipe = DislikedRecipes(recipe_id=recipe_id)
             else:
                 abort(400, 'The sentiment must be either "liked" or "disliked".')
 
+            features = create_feature_vector(recipe_id)
+            new_feature = FeatureVectors(features=features, sentiment=sentiment)
+            db.session.add(new_feature)
             db.session.add(new_recipe)
             db.session.commit()
 
