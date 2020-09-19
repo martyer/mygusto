@@ -2,7 +2,8 @@ import configparser
 
 from flask import Blueprint
 from flask_restplus import Api
-from app.api.v1.test import ns as test_ns
+from app.api.v1.ingredient import ns as ingredient_ns
+from app.api.v1.recipe import ns as recipe_ns
 
 config = configparser.ConfigParser()
 config.read('/mygusto/app/config.ini')
@@ -15,4 +16,5 @@ api = Api(
     description=config['FLASK']['DESCRIPTION']
 )
 
-api.add_namespace(test_ns)
+api.add_namespace(ingredient_ns)
+api.add_namespace(recipe_ns)
