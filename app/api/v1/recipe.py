@@ -34,6 +34,7 @@ liked_input = ns.model('liked_input', {
     )
 })
 
+
 def extract_recipe_info(recipe):
     recipe = recipe['_source']
     return {'id': recipe['id'],
@@ -44,7 +45,6 @@ def extract_recipe_info(recipe):
             "nutrients": recipe['nutrients'],
             "ingredients": recipe["sizes"][0]["ingredient_blocks"][0]["ingredients"]
             }
-
 
 
 @ns.route('/next')
@@ -114,7 +114,7 @@ class NextRecipeResource(Resource):
             if len(filtered_recipes) == 0:
                 raise Exception('No recipe found')
 
-            next_recipe = extract_recipe_info(filtered_recipes[0]["_source"])
+            next_recipe = extract_recipe_info(filtered_recipes[0])
 
             return next_recipe
 
@@ -176,7 +176,7 @@ class LikedRecipeResource(Resource):
             }
             indxs_request = es.search(index='recipes_de', body=params)
             recipes = indxs_request['hits']['hits']
-            extracted_recipes = [extract_recipe_info(recipes) for recipes in recipes]
+            extracted_recipes = [extract_recipe_info(recipe) for recipe in recipes]
             return extracted_recipes
 
         liked_recipes_ids = get_liked_recipe_ids()
