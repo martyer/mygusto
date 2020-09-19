@@ -1,0 +1,28 @@
+version: "3.8"
+services:
+  app:
+    image: mygusto
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./app:/mygusto/app
+    environment:
+      FLASK_ENV: development
+      FLASK_APP: app
+    ports:
+      - 5000:5000
+    command: /mygusto/app/run_flask
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_USER: mygusto
+      POSTGRES_PASSWORD: mygusto
+      POSTGRES_DB: mygusto
+    ports:
+      - 5432:5432
+    volumes:
+      - ./data/db/pgdata:/var/lib/postgresql/data/

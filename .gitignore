@@ -1,0 +1,8 @@
+# JetBrains
+.idea
+
+# Virtualenv
+/venv
+
+# Data
+/data
