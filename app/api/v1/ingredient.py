@@ -1,6 +1,6 @@
 from time import sleep
 
-from flask import abort
+from flask import abort, jsonify
 from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource
 from elasticsearch import Elasticsearch, TransportError
@@ -82,4 +82,9 @@ class IngredientResource(Resource):
         recipe_ids = get_shopping_list_recipe_ids()
         ingredients = get_ingredients(recipe_ids)
 
-        return ingredients
+        ingredient_list = []
+        for key, value in ingredients.items():
+            amount = int(value["amount"]) if value["amount"].is_integer() else value["amount"]
+            ingredient_list.append({'name': key, 'quantity': f'{amount}{value["unit"]}'})
+
+        return jsonify(ingredient_list)
