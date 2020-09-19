@@ -1,10 +1,13 @@
-from elasticsearch import Elasticsearch
-from flask import request, abort
+from time import sleep
+
+from elasticsearch import Elasticsearch, TransportError
+from flask import request, abort, jsonify
 from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
 
 from app.database import db
-from app.database.models import LikedRecipes, DislikedRecipes
+from app.database.models import LikedRecipes, DislikedRecipes, ShoppingList
+from app.utils.recipe_parser import extract_recipe_info
 
 ns = Namespace('recipe')
 
@@ -39,22 +42,13 @@ liked_input = ns.model('liked_input', {
     )
 })
 
-
-def extract_recipe_info(recipe):
-    recipe = recipe['_source']
-    image_1_1 = recipe['images'][0]['ratios'][4]['stack'].replace('{stack}', 'medium')
-    image_16_9 = recipe['images'][0]['ratios'][1]['stack'].replace('{stack}', 'medium')
-
-    return {
-        'id': recipe['id'],
-        'title': recipe['title'],
-        'teasertext': recipe['teasertext'],
-        'duration': recipe['duration_total_in_minutes'],
-        'steps': recipe['steps'],
-        'nutrients': recipe['nutrients'],
-        'ingredients': recipe['sizes'][0]['ingredient_blocks'][0]['ingredients'],
-        'images': {'1:1': image_1_1, '16:9': image_16_9}
-    }
+shopping_list_input = ns.model('shopping_list_input', {
+    'recipe_id': fields.Integer(
+        required=True,
+        description='The recipe id for the recipe that will be added to the shopping list',
+        example=23221
+    )
+})
 
 
 @ns.route('/next')
@@ -109,7 +103,15 @@ class NextRecipeResource(Resource):
                         }
                     }
                 }
-                rand_request = es.search(index='recipes_de', body=params)
+                rand_request = None
+                for j in range(3):
+                    try:
+                        rand_request = es.search(index='recipes_de', body=params)
+                    except TransportError:
+                        sleep(0.1)
+                if not rand_request:
+                    abort(500, 'Migros API is busy, please try again later.')
+
                 new_recipes = [recipe for recipe in rand_request['hits']['hits'] if
                                int(recipe['_source']['id']) not in seen_recipe_ids]
 
@@ -188,7 +190,15 @@ class LikedRecipeResource(Resource):
                     }
                 }
             }
-            indexes_request = es.search(index='recipes_de', body=params)
+            indexes_request = None
+            for j in range(3):
+                try:
+                    indexes_request = es.search(index='recipes_de', body=params)
+                except TransportError:
+                    sleep(0.1)
+            if not indexes_request:
+                abort(500, 'Migros API is busy, please try again later.')
+
             recipes = indexes_request['hits']['hits']
 
             return [extract_recipe_info(recipe) for recipe in recipes]
@@ -196,12 +206,23 @@ class LikedRecipeResource(Resource):
         liked_recipes_ids = get_liked_recipe_ids()
         liked_recipes = get_liked_recipes(liked_recipes_ids)
 
-        return liked_recipes
+        return jsonify(liked_recipes)
 
     @ns.expect(liked_input)
     @cross_origin()
     def post(self):
-        def insert_element_into_db(recipe_id: int, sentiment: str):
+        """
+        Add a new (dis)-liked recipe
+        """
+
+        def insert_element_into_db(recipe_id: int, sentiment: str) -> None:
+            """
+            Insert recipe id into corresponding sentiment table
+
+            :param recipe_id: Id of a swiped recipe
+            :param sentiment: String containing info if the recipe was swiped left or right
+            :return: None
+            """
             if sentiment == 'liked':
                 new_recipe = LikedRecipes(recipe_id=recipe_id)
             elif sentiment == 'disliked':
@@ -229,4 +250,64 @@ class LikedRecipeResource(Resource):
 
         insert_element_into_db(recipe_id, sentiment)
 
-        return
+        return ''
+
+
+@ns.route('/shopping_list')
+class ShoppingListResource(Resource):
+
+    @cross_origin()
+    def option(self):
+        return 'Ok', 200
+
+    @ns.expect(shopping_list_input)
+    @cross_origin()
+    def post(self):
+        """
+        Add a new recipe to the shopping list
+        """
+
+        def insert_element_into_shopping_list(recipe_id: int) -> None:
+            """
+            Insert recipe into shopping list table
+
+            :param recipe_id: Id of recipe to be inserted into the shopping list
+            :return: None
+            """
+            recipe = ShoppingList(recipe_id=recipe_id)
+            db.session.add(recipe)
+            db.session.commit()
+
+        data = request.json
+
+        if data is None:
+            abort(400, 'No JSON payload found. Please make sure to pass a body and set '
+                       '"Content-Type: application/json" header.')
+
+        if 'recipe_id' not in data:
+            abort(400, 'Please supply the key "recipe_id" in the input JSON.')
+
+        recipe_id = data['recipe_id']
+
+        insert_element_into_shopping_list(recipe_id)
+
+        return ''
+
+    @cross_origin()
+    def delete(self):
+        """
+        Clear shopping list
+        """
+
+        def clear_shopping_list() -> None:
+            """
+            Deletes all elements in shopping list table
+
+            :return: None
+            """
+            ShoppingList.query.delete()
+            db.session.commit()
+
+        clear_shopping_list()
+
+        return ''
