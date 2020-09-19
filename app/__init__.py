@@ -1,6 +1,7 @@
 import configparser
 
 from flask import Flask
+from flask_migrate import Migrate
 
 from app.api.api import blueprint as api_blueprint
 from app.database import db
@@ -26,3 +27,6 @@ def create_app():
 
 def init_extensions(app):
     db.init_app(app)
+
+    migrate = Migrate()
+    migrate.init_app(app, db, directory='/mygusto/app/database/migrations')
