@@ -13,3 +13,10 @@ class DislikedRecipes(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     recipe_id = db.Column(db.Integer, nullable=False, unique=True)
+
+
+class ShoppingList(db.Model):
+    __tablename__ = 'shopping_list'
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipe_id = db.Column(db.Integer, nullable=False, unique=True)
