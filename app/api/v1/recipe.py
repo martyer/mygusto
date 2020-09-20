@@ -1,6 +1,8 @@
 from time import sleep
 
 from elasticsearch import Elasticsearch, TransportError
+from sklearn.neighbors import KNeighborsClassifier
+import json
 from flask import request, abort, jsonify
 from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
@@ -50,6 +52,25 @@ shopping_list_input = ns.model('shopping_list_input', {
     )
 })
 
+
+important_tags = ['Schweiz', 'Sommer', 'Frühling', 'Herbst', 'Winter', 'Vegetarisch', 'Europa',
+                                  'Fleisch/Fisch', 'Nordamerika', 'Fingerfood', 'Pizza', 'Salat', 'Familienrezepte',
+                                  'Mexiko', 'Gesunde Rezepte', 'Italien', 'Suppe', 'Pasta', 'Wähen, Quiches, Tartes',
+                                  'Vegan', 'Brot', 'Auflauf/Gratin', 'Glace', 'Grossbritannien', 'Asien', 'Wok',
+                                  'Mittelamerika und Karibik', 'Burger', 'Risotto', 'Afrika', 'Kuchen', 'Guetzli',
+                                  'Eintöpfe', 'Wild', 'Nordafrika', 'Root', 'Frankreich', 'Vietnam', 'Südafrika',
+                                  'Australien', 'Spanien', 'Orient', 'Torte', 'Österreich', 'Balkan', 'Skandinavien',
+                                  'Griechenland', 'Deutschland', 'Japan', 'Smoothie', 'Thailand', 'Fusion',
+                                  'Südamerika']
+
+def make_one_hot_vector(recipe):
+    one_hot = [0] * 53
+    tags = recipe['_source']['tags']
+    for tag_name in important_tags:
+        values = [tag['name'] for tag in tags if tag['type'] == tag_name]
+        for value in values:
+            one_hot[all.index(value)] = 1
+    return one_hot
 
 @ns.route('/next')
 class NextRecipeResource(Resource):
@@ -104,6 +125,22 @@ class NextRecipeResource(Resource):
                     }
                 }
                 rand_request = None
+                smart_recomendation = False
+                feature_vectors = FeatureVectors.query.all()
+                feature_vectors = json.dumps(feature_vectors)
+                if len(feature_vector)>5:
+                    smart_recomendation = True
+                    X = []
+                    y = []
+                    for feature_vector in feature_vectors:
+                        X.append(feature_vector.features)
+                        if feature_vector.sentiment == 'liked':
+                            y.append(1)
+                        else:
+                            y.append(0)
+
+                    neigh = KNeighborsClassifier(n_neighbors=3)
+                    neigh.fit(X, y)
                 for j in range(3):
                     try:
                         rand_request = es.search(index='recipes_de', body=params)
@@ -120,6 +157,11 @@ class NextRecipeResource(Resource):
                         continue
                     if lactose_intolerant and 'Laktosefrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
                         continue
+                    if smart_recomendation:
+                        new = make_one_hot_vector(recipe)
+                        y_pred = neigh.predict([new])
+                        if y_pred == [0]:
+                            continue
                     next_recipe = recipe
                     break
 
@@ -231,7 +273,17 @@ class LikedRecipeResource(Resource):
                 :param recipe_id: Id of a swiped recipe
                 :return: JSON representation of feature vector
                 """
-                return 'test'
+                params = {"query": {
+                    "ids": {
+                        "values": [recipe_id]
+                    }
+                }
+                }
+                indxs_request = es.search(index='recipes_de', body=params)
+                recipe = indxs_request['hits']['hits'][0]
+                one_hot = json.dumps(make_one_hot_vector(recipe))
+
+                return one_hot
 
             if sentiment == 'liked':
                 new_recipe = LikedRecipes(recipe_id=recipe_id)
