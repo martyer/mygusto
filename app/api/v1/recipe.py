@@ -1,15 +1,16 @@
+import json
 from time import sleep
 
 from elasticsearch import Elasticsearch, TransportError
-from sklearn.neighbors import KNeighborsClassifier
-import json
 from flask import request, abort, jsonify
 from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
+from sklearn.neighbors import KNeighborsClassifier
 
 from app.database import db
 from app.database.models import LikedRecipes, DislikedRecipes, ShoppingList, FeatureVectors
 from app.utils.recipe_parser import extract_recipe_info
+from app.utils.recommender_system import make_one_hot_vector
 
 ns = Namespace('recipe')
 
@@ -52,25 +53,6 @@ shopping_list_input = ns.model('shopping_list_input', {
     )
 })
 
-
-important_tags = ['Schweiz', 'Sommer', 'Frühling', 'Herbst', 'Winter', 'Vegetarisch', 'Europa',
-                                  'Fleisch/Fisch', 'Nordamerika', 'Fingerfood', 'Pizza', 'Salat', 'Familienrezepte',
-                                  'Mexiko', 'Gesunde Rezepte', 'Italien', 'Suppe', 'Pasta', 'Wähen, Quiches, Tartes',
-                                  'Vegan', 'Brot', 'Auflauf/Gratin', 'Glace', 'Grossbritannien', 'Asien', 'Wok',
-                                  'Mittelamerika und Karibik', 'Burger', 'Risotto', 'Afrika', 'Kuchen', 'Guetzli',
-                                  'Eintöpfe', 'Wild', 'Nordafrika', 'Root', 'Frankreich', 'Vietnam', 'Südafrika',
-                                  'Australien', 'Spanien', 'Orient', 'Torte', 'Österreich', 'Balkan', 'Skandinavien',
-                                  'Griechenland', 'Deutschland', 'Japan', 'Smoothie', 'Thailand', 'Fusion',
-                                  'Südamerika']
-
-def make_one_hot_vector(recipe):
-    one_hot = [0] * 53
-    tags = recipe['_source']['tags']
-    for tag_name in important_tags:
-        values = [tag['name'] for tag in tags if tag['type'] == tag_name]
-        for value in values:
-            one_hot[all.index(value)] = 1
-    return one_hot
 
 @ns.route('/next')
 class NextRecipeResource(Resource):
@@ -125,20 +107,18 @@ class NextRecipeResource(Resource):
                     }
                 }
                 rand_request = None
-                smart_recomendation = False
+                smart_recommendation = False
                 feature_vectors = FeatureVectors.query.all()
-                feature_vectors = json.dumps(feature_vectors)
-                if len(feature_vector)>5:
-                    smart_recomendation = True
+                if len(feature_vectors) > 5:
+                    smart_recommendation = True
                     X = []
                     y = []
                     for feature_vector in feature_vectors:
-                        X.append(feature_vector.features)
+                        X.append(json.loads(feature_vector.features))
                         if feature_vector.sentiment == 'liked':
                             y.append(1)
                         else:
                             y.append(0)
-
                     neigh = KNeighborsClassifier(n_neighbors=3)
                     neigh.fit(X, y)
                 for j in range(3):
@@ -157,7 +137,7 @@ class NextRecipeResource(Resource):
                         continue
                     if lactose_intolerant and 'Laktosefrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
                         continue
-                    if smart_recomendation:
+                    if smart_recommendation:
                         new = make_one_hot_vector(recipe)
                         y_pred = neigh.predict([new])
                         if y_pred == [0]:
@@ -273,14 +253,15 @@ class LikedRecipeResource(Resource):
                 :param recipe_id: Id of a swiped recipe
                 :return: JSON representation of feature vector
                 """
-                params = {"query": {
-                    "ids": {
-                        "values": [recipe_id]
+                params = {
+                    "query": {
+                        "ids": {
+                            "values": [recipe_id]
+                        }
                     }
                 }
-                }
-                indxs_request = es.search(index='recipes_de', body=params)
-                recipe = indxs_request['hits']['hits'][0]
+                indexes_request = es.search(index='recipes_de', body=params)
+                recipe = indexes_request['hits']['hits'][0]
                 one_hot = json.dumps(make_one_hot_vector(recipe))
 
                 return one_hot
