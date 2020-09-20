@@ -1,13 +1,16 @@
+import json
 from time import sleep
 
 from elasticsearch import Elasticsearch, TransportError
 from flask import request, abort, jsonify
 from flask_cors import cross_origin
 from flask_restplus import Namespace, Resource, fields
+from sklearn.neighbors import KNeighborsClassifier
 
 from app.database import db
 from app.database.models import LikedRecipes, DislikedRecipes, ShoppingList, FeatureVectors
 from app.utils.recipe_parser import extract_recipe_info
+from app.utils.recommender_system import make_one_hot_vector
 
 ns = Namespace('recipe')
 
@@ -104,6 +107,20 @@ class NextRecipeResource(Resource):
                     }
                 }
                 rand_request = None
+                smart_recommendation = False
+                feature_vectors = FeatureVectors.query.all()
+                if len(feature_vectors) > 5:
+                    smart_recommendation = True
+                    X = []
+                    y = []
+                    for feature_vector in feature_vectors:
+                        X.append(json.loads(feature_vector.features))
+                        if feature_vector.sentiment == 'liked':
+                            y.append(1)
+                        else:
+                            y.append(0)
+                    neigh = KNeighborsClassifier(n_neighbors=3)
+                    neigh.fit(X, y)
                 for j in range(3):
                     try:
                         rand_request = es.search(index='recipes_de', body=params)
@@ -120,6 +137,11 @@ class NextRecipeResource(Resource):
                         continue
                     if lactose_intolerant and 'Laktosefrei' not in [tag['name'] for tag in recipe["_source"]["tags"]]:
                         continue
+                    if smart_recommendation:
+                        new = make_one_hot_vector(recipe)
+                        y_pred = neigh.predict([new])
+                        if y_pred == [0]:
+                            continue
                     next_recipe = recipe
                     break
 
@@ -231,7 +253,18 @@ class LikedRecipeResource(Resource):
                 :param recipe_id: Id of a swiped recipe
                 :return: JSON representation of feature vector
                 """
-                return 'test'
+                params = {
+                    "query": {
+                        "ids": {
+                            "values": [recipe_id]
+                        }
+                    }
+                }
+                indexes_request = es.search(index='recipes_de', body=params)
+                recipe = indexes_request['hits']['hits'][0]
+                one_hot = json.dumps(make_one_hot_vector(recipe))
+
+                return one_hot
 
             if sentiment == 'liked':
                 new_recipe = LikedRecipes(recipe_id=recipe_id)
