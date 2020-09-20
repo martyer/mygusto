@@ -10,8 +10,8 @@ important_tags = ['Schweiz', 'Sommer', 'Frühling', 'Herbst', 'Winter', 'Vegetar
 def make_one_hot_vector(recipe):
     one_hot = [0] * 53
     tags = recipe['_source']['tags']
-    for tag_name in important_tags:
-        values = [tag['name'] for tag in tags if tag['type'] == tag_name]
-        for value in values:
+    values = [tag['name'] for tag in tags]
+    for value in values:
+        if value in important_tags:
             one_hot[important_tags.index(value)] = 1
     return one_hot
